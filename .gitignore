@@ -1,2 +1,4 @@
 .DS_Store
+contra-costa-knowledge-bot/backend/app/data/*
+contra-costa-knowledge-bot/backend/app/data/raw/*
 
