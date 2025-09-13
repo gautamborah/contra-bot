@@ -13,28 +13,46 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Paths
+# INDEX_DIR = Path("./contra-costa-knowledge-bot/backend/app/data/index")
+# FAISS_INDEX_PATH = "./app/data/processed/faiss.index"
+
 FAISS_INDEX_PATH = "./contra-costa-knowledge-bot/backend/app/data/index/daily_index.faiss"
 METADATA_PATH = "./contra-costa-knowledge-bot/backend/app/data/index/daily_index.jsonl"
 
-# Global index + metadata (loaded once at startup)
-INDEX = None
-METADATA = None
+def query_bot_old(question: str, k: int = 3):
+    # Load FAISS index
+    index = faiss.read_index(FAISS_INDEX_PATH)
 
+    # Load metadata
+    metadata = []
+    with open(METADATA_PATH, "r") as f:
+        for line in f:
+            metadata.append(json.loads(line))
 
-def load_resources():
-    """Load FAISS index and metadata once and cache globally."""
-    global INDEX, METADATA
-    if INDEX is None:
-        print("📥 Loading FAISS index...")
-        INDEX = faiss.read_index(str(FAISS_INDEX_PATH))
+    # Embed the question
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=question
+    )
+    query_vector = np.array(response.data[0].embedding).astype("float32").reshape(1, -1)
 
-    if METADATA is None:
-        print("📥 Loading metadata...")
-        METADATA = []
-        with open(METADATA_PATH, "r") as f:
-            for line in f:
-                METADATA.append(json.loads(line))
+    # Search FAISS
+    distances, indices = index.search(query_vector, k)
 
+    # Retrieve context
+    results = [metadata[i] for i in indices[0]]
+    context = "\n".join([r["text"] for r in results])
+
+    # Ask GPT with context
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant answering questions about Contra Costa County COVID-19 data."},
+            {"role": "user", "content": f"Question: {question}\n\nContext:\n{context}"}
+        ]
+    )
+
+    return completion.choices[0].message.content
 
 def embed_query(query: str):
     """Embed the user query into a vector using OpenAI."""
@@ -46,17 +64,23 @@ def embed_query(query: str):
 
 
 def query_bot(query, k=5):
-    """Run a query against the FAISS index with cached index + metadata."""
-    load_resources()
+    # Load FAISS index
+    index = faiss.read_index(str(FAISS_INDEX_PATH))
+
+    # Load metadata
+    metadata = []
+    with open(METADATA_PATH, "r") as f:
+        for line in f:
+            metadata.append(json.loads(line))
 
     # Embed query
     query_embedding = embed_query(query)
 
-    # Search FAISS
-    D, I = INDEX.search(np.array([query_embedding], dtype="float32"), k)
+    # Search
+    D, I = index.search(np.array([query_embedding], dtype="float32"), k)
 
     # Retrieve texts + metadata
-    results = [METADATA[idx] for idx in I[0] if idx < len(METADATA)]
+    results = [metadata[idx] for idx in I[0] if idx < len(metadata)]
 
     # Build context
     context = "\n".join([r["text"] for r in results])
@@ -72,11 +96,9 @@ def query_bot(query, k=5):
 
     return response.choices[0].message.content
 
-
 def ask_question_loop():
     """Interactive loop for asking the bot questions until user exits."""
     print("🤖 Contra Costa Knowledge Bot (type 'exit', 'quit', or 'Shift+X' to stop)\n")
-    load_resources()  # preload index + metadata once here
     while True:
         question = input("You: ").strip()
         if question.lower() in {"exit", "quit"} or question == "X":
@@ -88,6 +110,10 @@ def ask_question_loop():
         except Exception as e:
             print(f"⚠️ Error: {e}\n")
 
+
+# if __name__ == "__main__":
+#     answer = query_bot("What is the vaccination trend in Alameda County?")
+#     print("🤖 Bot:", answer)
 
 if __name__ == "__main__":
     ask_question_loop()
