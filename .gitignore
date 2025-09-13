@@ -1,4 +1,7 @@
 .DS_Store
 contra-costa-knowledge-bot/backend/app/data/*
 contra-costa-knowledge-bot/backend/app/data/raw/*
+contra-costa-knowledge-bot/backend/.env
+contra-costa-knowledge-bot/backend/app/services/__pycache__
+contra-costa-knowledge-bot/backend/app/services/__pycache__/*
 
